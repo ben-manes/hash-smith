@@ -6,6 +6,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.Arrays;
 import java.util.Objects;
+import java.util.Iterator;
+import java.util.NoSuchElementException;
 
 /**
  * Skeleton for a SwissTable-inspired Map implementation.
@@ -247,17 +249,17 @@ public class SwissMap<K, V> extends AbstractMap<K, V> {
 
 	@Override
 	public Set<K> keySet() {
-		throw new UnsupportedOperationException("Not implemented yet");
+		return new KeyView();
 	}
 
 	@Override
 	public Collection<V> values() {
-		throw new UnsupportedOperationException("Not implemented yet");
+		return new ValuesView();
 	}
 
 	@Override
 	public Set<Entry<K, V>> entrySet() {
-		throw new UnsupportedOperationException("Not implemented yet");
+		return new EntryView();
 	}
 
 	/* lookup utilities */
@@ -295,5 +297,163 @@ public class SwissMap<K, V> extends AbstractMap<K, V> {
 	@SuppressWarnings("unchecked")
 	private V castValue(Object v) {
 		return (V) v;
+	}
+
+	@SuppressWarnings("unchecked")
+	private K castKey(Object k) {
+		return (K) k;
+	}
+
+	/* iterator base */
+	private abstract class BaseIter<T> implements Iterator<T> {
+		int next = 0;
+		int last = -1;
+
+		@Override
+		public boolean hasNext() {
+			for (; next < ctrl.length; next++) {
+				if (isFull(ctrl[next])) return true;
+			}
+			return false;
+		}
+
+		int nextIndex() {
+			if (!hasNext()) throw new NoSuchElementException();
+			int i = next;
+			next++;
+			last = i;
+			return i;
+		}
+
+		@Override
+		public void remove() {
+			if (last < 0) throw new IllegalStateException();
+			if (isFull(ctrl[last])) {
+				ctrl[last] = DELETED;
+				keys[last] = null;
+				vals[last] = null;
+				size--;
+				tombstones++;
+			}
+			last = -1;
+		}
+	}
+
+	private class KeyIter extends BaseIter<K> {
+		@Override
+		public K next() {
+			return castKey(keys[nextIndex()]);
+		}
+	}
+
+	private class ValueIter extends BaseIter<V> {
+		@Override
+		public V next() {
+			return castValue(vals[nextIndex()]);
+		}
+	}
+
+	private class EntryIter extends BaseIter<Entry<K, V>> {
+		@Override
+		public Entry<K, V> next() {
+			int idx = nextIndex();
+			return new EntryRef(idx);
+		}
+	}
+
+	private class EntryRef implements Entry<K, V> {
+		private final int idx;
+		EntryRef(int idx) { this.idx = idx; }
+
+		@Override
+		public K getKey() { return castKey(keys[idx]); }
+
+		@Override
+		public V getValue() { return castValue(vals[idx]); }
+
+		@Override
+		public V setValue(V v) {
+			if (!isFull(ctrl[idx])) throw new IllegalStateException();
+			V old = castValue(vals[idx]);
+			vals[idx] = v;
+			return old;
+		}
+
+		@Override
+		public boolean equals(Object o) {
+			if (!(o instanceof Entry<?,?> e)) return false;
+			return Objects.equals(getKey(), e.getKey()) && Objects.equals(getValue(), e.getValue());
+		}
+
+		@Override
+		public int hashCode() {
+			return Objects.hashCode(getKey()) ^ Objects.hashCode(getValue());
+		}
+	}
+
+	private class KeyView extends java.util.AbstractSet<K> {
+		@Override
+		public int size() { return size; }
+
+		@Override
+		public void clear() { SwissMap.this.clear(); }
+
+		@Override
+		public boolean contains(Object o) { return containsKey(o); }
+
+		@Override
+		public boolean remove(Object o) {
+			if (!containsKey(o)) return false;
+			SwissMap.this.remove(o);
+			return true;
+		}
+
+		@Override
+		public Iterator<K> iterator() { return new KeyIter(); }
+	}
+
+	private class ValuesView extends java.util.AbstractCollection<V> {
+		@Override
+		public int size() { return size; }
+
+		@Override
+		public void clear() { SwissMap.this.clear(); }
+
+		@Override
+		public boolean contains(Object o) { return containsValue(o); }
+
+		@Override
+		public Iterator<V> iterator() { return new ValueIter(); }
+	}
+
+	private class EntryView extends java.util.AbstractSet<Entry<K, V>> {
+		@Override
+		public int size() { return size; }
+
+		@Override
+		public void clear() { SwissMap.this.clear(); }
+
+		@Override
+		public boolean contains(Object o) {
+			if (!(o instanceof Entry<?,?> e)) return false;
+			int idx = findIndex(e.getKey());
+			return idx >= 0 && Objects.equals(vals[idx], e.getValue());
+		}
+
+		@Override
+		public boolean remove(Object o) {
+			if (!(o instanceof Entry<?,?> e)) return false;
+			int idx = findIndex(e.getKey());
+			if (idx < 0 || !Objects.equals(vals[idx], e.getValue())) return false;
+			ctrl[idx] = DELETED;
+			keys[idx] = null;
+			vals[idx] = null;
+			size--;
+			tombstones++;
+			return true;
+		}
+
+		@Override
+		public Iterator<Entry<K, V>> iterator() { return new EntryIter(); }
 	}
 }
