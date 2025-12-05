@@ -89,8 +89,53 @@ public class SwissMap<K, V> extends AbstractMap<K, V> {
 	}
 
 	private void rehash(int newCapacity) {
-		// TODO: allocate new arrays, reset ctrl to EMPTY, and reinsert entries
-		throw new UnsupportedOperationException("Rehash not implemented yet");
+		byte[] oldCtrl = this.ctrl;
+		Object[] oldKeys = this.keys;
+		Object[] oldVals = this.vals;
+
+		this.capacity = Math.max(newCapacity, DEFAULT_GROUP_SIZE);
+		this.ctrl = new byte[this.capacity];
+		Arrays.fill(this.ctrl, EMPTY);
+		this.keys = new Object[this.capacity];
+		this.vals = new Object[this.capacity];
+		this.size = 0;
+		this.tombstones = 0;
+		this.maxLoad = calcMaxLoad(this.capacity);
+
+		if (oldCtrl == null) return;
+
+		for (int i = 0; i < oldCtrl.length; i++) {
+			byte c = oldCtrl[i];
+			if (!isFull(c)) continue;
+			@SuppressWarnings("unchecked")
+			K k = (K) oldKeys[i];
+			@SuppressWarnings("unchecked")
+			V v = (V) oldVals[i];
+			int h = (k == null) ? 0 : k.hashCode();
+			insertFresh(k, v, h1(h), h2(h));
+		}
+	}
+
+	/* fresh-table insertion used only during rehash */
+	private void insertFresh(K key, V value, int h1, byte h2) {
+		int nGroups = capacity / DEFAULT_GROUP_SIZE;
+		if (nGroups == 0) { throw new IllegalStateException("No groups allocated"); }
+		int g = h1 % nGroups;
+		for (;;) {
+			int base = g * DEFAULT_GROUP_SIZE;
+			for (int j = 0; j < DEFAULT_GROUP_SIZE; j++) {
+				int idx = base + j;
+				if (isEmpty(ctrl[idx])) {
+					ctrl[idx] = h2;
+					keys[idx] = key;
+					vals[idx] = value;
+					size++;
+					return;
+				}
+			}
+			g++;
+			if (g == nGroups) g = 0;
+		}
 	}
 
 	@Override
