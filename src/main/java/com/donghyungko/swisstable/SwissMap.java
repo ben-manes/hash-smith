@@ -35,7 +35,6 @@ public class SwissMap<K, V> extends AbstractMap<K, V> {
 	private int size;        // live entries
 	private int tombstones;  // deleted slots
 	private int capacity;    // total slots (length of ctrl/keys/vals)
-	private int shift = DEFAULT_SHIFT; // log2 of slots per group
 	private int maxLoad;     // threshold to trigger rehash/resize
 
 	public SwissMap() {
