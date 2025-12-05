@@ -50,7 +50,6 @@ public class Demo {
 ```bash
 ./gradlew jmh
 ```
-- Defaults: warmup 1, iterations 2, fork 1, mode `thrpt`, time unit `ms`.
 
 ### Current Results (ns/op, size = 10,000)
 | Benchmark | ns/op (≈) |
