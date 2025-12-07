@@ -1,5 +1,7 @@
 # HashSmith: High-performance hash tables for Java
 
+![HashSmith logo](images/logo.png)
+
 > Fast, memory-efficient open-addressing hash tables for the JVM (SwissMap with SIMD + RobinHoodMap with Robin Hood probing).
 
 <!-- TODO: Add badges (CI, License, Release) -->
