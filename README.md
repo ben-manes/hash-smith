@@ -69,6 +69,10 @@ public class Demo {
 | --- | --- |
 | ![CPU: put hit](images/cpu-put-hit.png) | ![CPU: put miss](images/cpu-put-miss.png) |
 
+| rmove hit | remove miss |
+| --- | --- |
+| ![CPU: remove hit](images/cpu-remove-hit.png) | ![CPU: remove miss](images/cpu-remove-miss.png) |
+
 | iterate |  |
 | --- | --- |
 | ![CPU: iterate](images/cpu-iterate.png) |  |
