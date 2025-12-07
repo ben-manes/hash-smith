@@ -40,6 +40,28 @@ public class Demo {
 }
 ```
 
+## Install
+- Gradle (Kotlin DSL):
+```kotlin
+dependencies {
+    implementation("io.github.bluuewhale:hashsmith:0.1.0")
+}
+```
+- Gradle (Groovy):
+```groovy
+dependencies {
+    implementation 'io.github.bluuewhale:hashsmith:0.1.0'
+}
+```
+- Maven:
+```xml
+<dependency>
+  <groupId>io.github.bluuewhale</groupId>
+  <artifactId>hashsmith</artifactId>
+  <version>0.1.0</version>
+</dependency>
+```
+
 ## Requirements
 - JDK 21+ (SwissMap needs `jdk.incubator.vector`)
 - Gradle (wrapper provided)
