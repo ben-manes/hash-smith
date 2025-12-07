@@ -16,7 +16,7 @@ public class MapFootprintTest {
 	private static final int[] SIZES = { 100, 1_000, 10_000, 100_000 };
 	private static final long SEED = 1234L;
 	private static final int SHORT_STR_LEN = 8;
-	private static final int LONG_STR_LEN = 200;
+	private static final int LONG_STR_LEN = 100;
 
 	private enum Payload {
 		BOOLEAN, INT, SHORT_STR, LONG_STR
