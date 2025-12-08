@@ -2,6 +2,7 @@ package io.github.bluuewhale.hashsmith;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.function.IntFunction;
 import java.util.function.Supplier;
@@ -15,15 +16,56 @@ class MapSmokeTest {
 	record MapSpec(
 		String name,
 		Supplier<Map<?, ?>> mapSupplier,
-		IntFunction<Map<?, ?>> mapWithCapacitySupplier
+		IntFunction<Map<?, ?>> mapWithCapacitySupplier,
+        Double loadFactor
 	) {
-		@Override public String toString() { return name; }
+		@Override public String toString() { return name + " lf=" + loadFactor; }
 	}
 
 	private static Stream<MapSpec> mapSpecs() {
 		return Stream.of(
-			new MapSpec("SwissMap", SwissMap::new, SwissMap::new),
-			new MapSpec("RobinHoodMap", RobinHoodMap::new, RobinHoodMap::new)
+            new MapSpec(
+                "HashMap",
+                () -> new HashMap<>(16, 0.9f),
+                cap -> new HashMap<>(cap, 0.9f),
+                0.9
+            ),
+            new MapSpec(
+                "SwissMap",
+                () -> new SwissMap<>(16, 0.5),
+                cap -> new SwissMap<>(cap, 0.5),
+                0.5
+            ),
+            new MapSpec(
+                "SwissMap",
+                () -> new SwissMap<>(16, 0.75),
+                cap -> new SwissMap<>(cap, 0.75),
+                0.75
+            ),
+			new MapSpec(
+                "SwissMap",
+                () -> new SwissMap<>(16, 0.875),
+                cap -> new SwissMap<>(cap, 0.875),
+                0.875
+            ),
+            new MapSpec(
+                "RobinHoodMap",
+                () -> new RobinHoodMap<>(16, 0.5),
+                cap -> new RobinHoodMap<>(cap, 0.5),
+                0.5
+            ),
+            new MapSpec(
+                "RobinHoodMap",
+                () -> new RobinHoodMap<>(16, 0.75),
+                cap -> new RobinHoodMap<>(cap, 0.75),
+                0.75
+            ),
+			new MapSpec(
+                "RobinHoodMap",
+                () -> new RobinHoodMap<>(16, 0.875),
+                cap -> new RobinHoodMap<>(cap, 0.875),
+                0.875
+            )
 		);
 	}
 
@@ -79,10 +121,15 @@ class MapSmokeTest {
 		}
 	}
 
+    /**
+     * test case for bug found in Rust's HashMap implementation
+     * see https://accidentallyquadratic.tumblr.com/post/153545455987/rust-hash-iteration-reinsertion for more details
+     * @param spec
+     */
 	@ParameterizedTest(name = "{0} insertAndReinsertTimings")
 	@MethodSource("mapSpecs")
 	void insertAndReinsertTimings(MapSpec spec) {
-		int n = 1_000_000;
+		int n = 3_000_000;
 
 		long insertStart = System.nanoTime();
 		var one = newMap(spec, n);
