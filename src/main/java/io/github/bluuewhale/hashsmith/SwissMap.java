@@ -5,9 +5,9 @@ import java.util.Collection;
 import java.util.Map;
 import java.util.Set;
 import java.util.Arrays;
-import java.util.Objects;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
+import java.util.Objects;
 import java.util.concurrent.ThreadLocalRandom;
 import jdk.incubator.vector.ByteVector;
 import jdk.incubator.vector.VectorSpecies;
@@ -46,7 +46,6 @@ public class SwissMap<K, V> extends AbstractMap<K, V> {
 	private int maxLoad;     // threshold to trigger rehash/resize
 	private boolean useSimd = true;
 	private double loadFactor = DEFAULT_LOAD_FACTOR;
-	private final int salt;
 
 
 	public SwissMap() {
@@ -73,7 +72,6 @@ public class SwissMap<K, V> extends AbstractMap<K, V> {
 		validateLoadFactor(loadFactor);
 		this.loadFactor = loadFactor;
 		this.useSimd = useSimd;
-		this.salt = ThreadLocalRandom.current().nextInt();
 		init(initialCapacity);
 	}
 
@@ -102,7 +100,7 @@ public class SwissMap<K, V> extends AbstractMap<K, V> {
 	}
 
 	private int hash(Object key) {
-		return Hashing.smearedHashWithSalt(key, salt);
+		return Hashing.smearedHash(key);
 	}
 
 	/* Capacity/load helpers */
@@ -405,22 +403,43 @@ public class SwissMap<K, V> extends AbstractMap<K, V> {
 
 	/* iterator base */
 	private abstract class BaseIter<T> implements Iterator<T> {
-		int next = 0;
-		int last = -1;
+		private final int start;
+		private final int step;
+		private final int mask = capacity - 1; // capacity is a power of two
+		private int iter = 0;
+		private int next = -1;
+		private int last = -1;
+
+		BaseIter() {
+			ThreadLocalRandom r = ThreadLocalRandom.current();
+			// Odd step is coprime to power-of-two capacity, so (start + i*step) & mask visits every slot once.
+			this.start = r.nextInt() & mask;
+			this.step = r.nextInt() | 1; // odd step yields full cycle
+			advance();
+		}
+
+		private void advance() {
+			next = -1;
+			while (iter < capacity) {
+				// & mask == mod capacity; iter grows, step scrambles the visit order without extra buffers.
+				int idx = (start + (iter++ * step)) & mask;
+				if (isFull(ctrl[idx])) {
+					next = idx;
+					return;
+				}
+			}
+		}
 
 		@Override
 		public boolean hasNext() {
-			for (; next < capacity; next++) {
-				if (isFull(ctrl[next])) return true;
-			}
-			return false;
+			return next >= 0;
 		}
 
 		int nextIndex() {
 			if (!hasNext()) throw new NoSuchElementException();
 			int i = next;
-			next++;
 			last = i;
+			advance();
 			return i;
 		}
 

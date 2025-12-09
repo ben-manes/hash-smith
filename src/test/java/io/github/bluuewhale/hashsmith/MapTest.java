@@ -334,4 +334,28 @@ class MapTest {
 
 		for (var e : m.entrySet()) assertEquals(100, e.getValue());
 	}
+
+	@ParameterizedTest(name = "{0} iteratorCoversAllEntries")
+	@MethodSource("mapSpecs")
+	void iteratorCoversAllEntries(MapSpec spec) {
+		var m = newMap(spec);
+		int n = 10000;
+		int expectedSum = 0;
+		for (int i = 0; i < n; i++) {
+			int v = i + 1; // avoid zero to make sum check meaningful
+			m.put(i, v);
+			expectedSum += v;
+		}
+
+		int actualSum = 0;
+		int count = 0;
+		for (var e : m.entrySet()) {
+			actualSum += (Integer) e.getValue();
+			count++;
+		}
+
+		assertEquals(n, count);
+		assertEquals(n, m.size());
+		assertEquals(expectedSum, actualSum);
+	}
 }

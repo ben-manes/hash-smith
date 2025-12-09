@@ -27,7 +27,6 @@ public class RobinHoodMap<K, V> extends AbstractMap<K, V> {
 	private int capacity;
 	private int maxLoad;
 	private double loadFactor = DEFAULT_LOAD_FACTOR;
-	private final int salt;
 
 	public RobinHoodMap() {
 		this(DEFAULT_INITIAL_CAPACITY, DEFAULT_LOAD_FACTOR);
@@ -40,7 +39,6 @@ public class RobinHoodMap<K, V> extends AbstractMap<K, V> {
 	public RobinHoodMap(int initialCapacity, double loadFactor) {
 		validateLoadFactor(loadFactor);
 		this.loadFactor = loadFactor;
-		this.salt = ThreadLocalRandom.current().nextInt();
 		resize(initialCapacity);
 	}
 
@@ -177,7 +175,7 @@ public class RobinHoodMap<K, V> extends AbstractMap<K, V> {
 	/* Hash helpers */
 	private int hash(Object key) {
 		if (key == null) throw new NullPointerException("Null keys not supported");
-		return Hashing.smearedHashWithSalt(key, salt);
+		return Hashing.smearedHash(key);
 	}
 
 	/* Capacity helpers */
@@ -275,19 +273,33 @@ public class RobinHoodMap<K, V> extends AbstractMap<K, V> {
 	}
 
 	private final class EntryIterator implements Iterator<Map.Entry<K, V>> {
-		private int nextIdx;
+		private final int start;
+		private final int step;
+		private final int mask = capacity - 1;
+		private int iter = 0;
+		private int nextIdx = -1;
 		private K lastKey;
 		private boolean canRemove;
 
 		EntryIterator() {
-			this.nextIdx = advance(0);
+			ThreadLocalRandom r = ThreadLocalRandom.current();
+			// With power-of-two capacity, an odd step is coprime to capacity, so (start + i*step) & mask
+			// walks every slot exactly once (full cycle) without extra allocations.
+			this.start = r.nextInt() & mask;
+			this.step = r.nextInt() | 1; // odd step yields full cycle (capacity is power of two)
+			advance();
 		}
 
-		private int advance(int start) {
-			for (int i = start; i < capacity; i++) {
-				if (keys[i] != null) return i;
+		private void advance() {
+			nextIdx = -1;
+			while (iter < capacity) {
+				// & mask == mod capacity; iter grows monotonically, step scrambles the visit order.
+				int idx = (start + (iter++ * step)) & mask;
+				if (keys[idx] != null) {
+					nextIdx = idx;
+					return;
+				}
 			}
-			return -1;
 		}
 
 		@Override
@@ -301,17 +313,14 @@ public class RobinHoodMap<K, V> extends AbstractMap<K, V> {
 			K key = castKey(keys[nextIdx]);
 			lastKey = key;
 			canRemove = true;
-			int current = nextIdx;
-			nextIdx = advance(current + 1);
-			return new EntryView(key);
+			advance();
+			return new EntryView(lastKey);
 		}
 
 		@Override
 		public void remove() {
 			if (!canRemove) throw new IllegalStateException();
 			RobinHoodMap.this.remove(lastKey);
-			// After removal, entries may shift; rescan from current position
-			nextIdx = advance(Math.max(0, nextIdx));
 			canRemove = false;
 		}
 	}
