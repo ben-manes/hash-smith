@@ -17,11 +17,13 @@
 ## Implementations
 - **SwissMap**: Google's SwissTable-inspired design with SIMD probing, tombstone reuse, and optional scalar fallback. See `docs/SwissMap.md` for details.
 - **RobinHoodMap**: Robin Hood hashing with backward-shift deletion. See `docs/RobinHoodMap.md` for detailed behavior and notes.
+- **SwissSet **: SwissTable-style hash set with SIMD control-byte probing, tombstone reuse, and null-element support (`SwissSet` class, serves as the SwissHashSet variant).
 
 ## Quick Start
 ```java
 import io.github.bluuewhale.hashsmith.SwissMap;
 import io.github.bluuewhale.hashsmith.RobinHoodMap;
+import io.github.bluuewhale.hashsmith.SwissSet;
 
 public class Demo {
     public static void main(String[] args) {
@@ -37,6 +39,12 @@ public class Demo {
         robin.put("y", 99);
         robin.remove("x");
         System.out.println(robin.get("y")); // 99
+
+        // SwissSet / SwissHashSet
+        var swissSet = new SwissSet<String>();
+        swissSet.add("k");
+        swissSet.add(null); // nulls allowed
+        System.out.println(swissSet.contains("k")); // true
     }
 }
 ```
