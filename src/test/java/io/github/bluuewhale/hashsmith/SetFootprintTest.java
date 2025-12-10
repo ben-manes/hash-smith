@@ -6,6 +6,8 @@ import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 
+import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
+import org.eclipse.collections.impl.set.mutable.UnifiedSet;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -33,9 +35,12 @@ public class SetFootprintTest {
 
 	private static final SetSpec HASH_SET = new SetSpec("HashSet", HashSet::new);
 	private static final SetSpec SWISS_SET = new SetSpec("SwissSet", SwissSet::new);
+	private static final SetSpec OBJECT_OPEN_HASH_SET = new SetSpec("ObjectOpenHashSet", ObjectOpenHashSet::new);
+	private static final SetSpec UNIFIED_SET = new SetSpec("UnifiedSet", UnifiedSet::new);
 
 	private static Stream<Arguments> payloadsAndSets() {
-		return Stream.of(HASH_SET, SWISS_SET)
+		return Stream.of(
+            HASH_SET, SWISS_SET, OBJECT_OPEN_HASH_SET, UNIFIED_SET)
 			.flatMap(spec -> Stream.of(Payload.values()).map(p -> Arguments.of(spec, p)));
 	}
 
