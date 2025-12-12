@@ -135,7 +135,7 @@ dependencies {
 ### Results
 | get hit | get miss |
 | --- | --- |
-| ![CPU: get hit](images/cpu-get-hit.png) | ![CPU: get miss](images/cpu-get-miss.png) |
+| ![CPU: get hit](images/map-cpu-get-hit.png) | ![CPU: get miss](images/map-cpu-get-miss.png) |
 
 | put hit | put miss |
 | --- | --- |

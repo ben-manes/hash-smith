@@ -21,6 +21,7 @@ import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.State;
 import org.openjdk.jmh.annotations.Warmup;
+import org.openjdk.jmh.infra.Blackhole;
 
 @Fork(2)
 @Warmup(iterations = 3)
@@ -150,54 +151,54 @@ public class SetBenchmark {
 	}
 
 	// contains hit/miss
-	@Benchmark
-	public boolean swissContainsHit(ReadState s) { return s.swiss.contains(s.nextHitKey()); }
+//	@Benchmark
+	public void swissContainsHit(ReadState s, Blackhole bh) { boolean res = s.swiss.contains(s.nextHitKey()); bh.consume(res); }
+
+//	@Benchmark
+	public void jdkContainsHit(ReadState s, Blackhole bh) { boolean res = s.jdk.contains(s.nextHitKey()); bh.consume(res); }
 
 	@Benchmark
-	public boolean jdkContainsHit(ReadState s) { return s.jdk.contains(s.nextHitKey()); }
+	public void fastutilContainsHit(ReadState s, Blackhole bh) { boolean res = s.fastutil.contains(s.nextHitKey()); bh.consume(res); }
 
 	@Benchmark
-	public boolean fastutilContainsHit(ReadState s) { return s.fastutil.contains(s.nextHitKey()); }
+	public void unifiedContainsHit(ReadState s, Blackhole bh) { boolean res = s.unified.contains(s.nextHitKey()); bh.consume(res); }
+
+//	@Benchmark
+	public void swissContainsMiss(ReadState s, Blackhole bh) { boolean res = s.swiss.contains(s.nextMissKey()); bh.consume(res); }
+
+//	@Benchmark
+	public void jdkContainsMiss(ReadState s, Blackhole bh) { boolean res = s.jdk.contains(s.nextMissKey()); bh.consume(res); }
 
 	@Benchmark
-	public boolean unifiedContainsHit(ReadState s) { return s.unified.contains(s.nextHitKey()); }
+	public void fastutilContainsMiss(ReadState s, Blackhole bh) { boolean res = s.fastutil.contains(s.nextMissKey()); bh.consume(res); }
 
 	@Benchmark
-	public boolean swissContainsMiss(ReadState s) { return s.swiss.contains(s.nextMissKey()); }
-
-	@Benchmark
-	public boolean jdkContainsMiss(ReadState s) { return s.jdk.contains(s.nextMissKey()); }
-
-	@Benchmark
-	public boolean fastutilContainsMiss(ReadState s) { return s.fastutil.contains(s.nextMissKey()); }
-
-	@Benchmark
-	public boolean unifiedContainsMiss(ReadState s) { return s.unified.contains(s.nextMissKey()); }
+	public void unifiedContainsMiss(ReadState s, Blackhole bh) { boolean res = s.unified.contains(s.nextMissKey()); bh.consume(res); }
 
 	// add hit/miss
-	@Benchmark
-	public boolean swissAddHit(MutateState s) { return s.swiss.add(s.nextHitKey()); }
+//	@Benchmark
+	public void swissAddHit(MutateState s, Blackhole bh) { boolean res = s.swiss.add(s.nextHitKey()); bh.consume(res); }
+
+//	@Benchmark
+	public void jdkAddHit(MutateState s, Blackhole bh) { boolean res = s.jdk.add(s.nextHitKey()); bh.consume(res); }
 
 	@Benchmark
-	public boolean jdkAddHit(MutateState s) { return s.jdk.add(s.nextHitKey()); }
+	public void fastutilAddHit(MutateState s, Blackhole bh) { boolean res = s.fastutil.add(s.nextHitKey()); bh.consume(res); }
 
 	@Benchmark
-	public boolean fastutilAddHit(MutateState s) { return s.fastutil.add(s.nextHitKey()); }
+	public void unifiedAddHit(MutateState s, Blackhole bh) { boolean res = s.unified.add(s.nextHitKey()); bh.consume(res); }
+
+//	@Benchmark
+	public void swissAddMiss(MutateState s, Blackhole bh) { boolean res = s.swiss.add(s.nextMissKey()); bh.consume(res); }
+
+//	@Benchmark
+	public void jdkAddMiss(MutateState s, Blackhole bh) { boolean res = s.jdk.add(s.nextMissKey()); bh.consume(res); }
 
 	@Benchmark
-	public boolean unifiedAddHit(MutateState s) { return s.unified.add(s.nextHitKey()); }
+	public void fastutilAddMiss(MutateState s, Blackhole bh) { boolean res = s.fastutil.add(s.nextMissKey()); bh.consume(res); }
 
 	@Benchmark
-	public boolean swissAddMiss(MutateState s) { return s.swiss.add(s.nextMissKey()); }
-
-	@Benchmark
-	public boolean jdkAddMiss(MutateState s) { return s.jdk.add(s.nextMissKey()); }
-
-	@Benchmark
-	public boolean fastutilAddMiss(MutateState s) { return s.fastutil.add(s.nextMissKey()); }
-
-	@Benchmark
-	public boolean unifiedAddMiss(MutateState s) { return s.unified.add(s.nextMissKey()); }
+	public void unifiedAddMiss(MutateState s, Blackhole bh) { boolean res = s.unified.add(s.nextMissKey()); bh.consume(res); }
 
 	private static String nextUuidString(Random rnd) {
 		return new UUID(rnd.nextLong(), rnd.nextLong()).toString();

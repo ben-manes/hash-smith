@@ -28,14 +28,17 @@ import org.openjdk.jmh.infra.Blackhole;
     jvmArgsAppend = {
         "--add-modules=jdk.incubator.vector",
         "--enable-preview",
-        "-XX:+UnlockDiagnosticVMOptions",
-        "-XX:+DebugNonSafepoints",
-        "-XX:StartFlightRecording=name=JMHProfile,filename=jmh-profile.jfr,settings=profile",
-        "-XX:FlightRecorderOptions=stackdepth=256"
+//        "-Xms1g",
+//        "-Xmx1g",
+//        "-XX:+AlwaysPreTouch",
+//        "-XX:+UnlockDiagnosticVMOptions",
+//        "-XX:+DebugNonSafepoints",
+//        "-XX:StartFlightRecording=name=JMHProfile,filename=jmh-profile.jfr,settings=profile",
+//        "-XX:FlightRecorderOptions=stackdepth=256"
     }
 )
-@Warmup(iterations = 3)
-@Measurement(iterations = 3)
+@Warmup(iterations = 5)
+@Measurement(iterations = 5)
 @BenchmarkMode(Mode.AverageTime)
 @OutputTimeUnit(TimeUnit.NANOSECONDS)
 public class MapBenchmark {
@@ -46,8 +49,7 @@ public class MapBenchmark {
 
 	@State(Scope.Benchmark)
 	public static class ReadState {
-//		@Param({ "10000", "100000", "200000", "400000" })
-        @Param({ "100000" })
+        @Param({ "12000", "48000", "196000", "784000" }) // load factor equals to 74.x% (right before resizing)
 		int size;
 
 		SwissMap<String, Object> swiss;
@@ -108,7 +110,7 @@ public class MapBenchmark {
 
 	@State(Scope.Thread)
 	public static class MutateState {
-        @Param({ "10000", "100000", "200000", "400000" })
+        @Param({ "12000", "48000", "196000", "784000" }) // load factor equals to 74.x% (right before resizing)
 		int size;
 
 		String[] keys;
@@ -219,7 +221,7 @@ public class MapBenchmark {
 		bh.consume(s.swiss.get(s.nextHitKey()));
 	}
 
-	@Benchmark
+//	@Benchmark
 	public void robinGetHit(ReadState s, Blackhole bh) {
         bh.consume(s.robin.get(s.nextHitKey()));
 	}
@@ -239,7 +241,7 @@ public class MapBenchmark {
         bh.consume(s.jdk.get(s.nextHitKey()));
 	}
 
-//	@Benchmark
+	@Benchmark
 	public void swissGetMiss(ReadState s, Blackhole bh) {
 		bh.consume(s.swiss.get(s.nextMissingKey()));
 	}
@@ -249,17 +251,17 @@ public class MapBenchmark {
         bh.consume(s.robin.get(s.nextMissingKey()));
 	}
 
-//	@Benchmark
+	@Benchmark
 	public void fastutilGetMiss(ReadState s, Blackhole bh) {
         bh.consume(s.fastutil.get(s.nextMissingKey()));
 	}
 
-//	 @Benchmark
+	 @Benchmark
 	public void unifiedGetMiss(ReadState s, Blackhole bh) {
         bh.consume(s.unified.get(s.nextMissingKey()));
 	}
 
-//	@Benchmark
+	@Benchmark
 	public void jdkGetMiss(ReadState s, Blackhole bh) {
         bh.consume(s.jdk.get(s.nextMissingKey()));
 	}
