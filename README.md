@@ -100,39 +100,8 @@ dependencies {
 </table>
 
 ## Benchmark (JMH, CPU ns/op)
-```bash
-./gradlew jmh
-```
-
-### Results
-| get hit | get miss |
-| --- | --- |
-| ![CPU: get hit](images/cpu-get-hit.png) | ![CPU: get miss](images/cpu-get-miss.png) |
-
-| put hit | put miss |
-| --- | --- |
-| ![CPU: put hit](images/cpu-put-hit.png) | ![CPU: put miss](images/cpu-put-miss.png) |
-
-
-## Documentation
-- SwissMap: `docs/SwissMap.md`
-- RobinHoodMap: `docs/RobinHoodMap.md`
-
-## Contributing
-1) Open an issue for bugs/ideas  
-2) Work on a feature branch and open a PR  
-3) Keep tests/JMH green before submitting
-
-## License
-- This project is licensed under the MIT License. See [`LICENSE`](./LICENSE) for details.
-
-
-## Benchmark (JMH, CPU ns/op)
-```bash
-./gradlew jmh
-```
-
-### Results
+- At high load factors SwissMap keeps competitive throughput against other open-addressing tables and stays close to JDK HashMap performance. 
+- In put-heavy workloads, SwissMap shows up to ~60% better `put` throughput than JDK HashMap.
 | get hit | get miss |
 | --- | --- |
 | ![CPU: get hit](images/map-cpu-get-hit.png) | ![CPU: get miss](images/map-cpu-get-miss.png) |
