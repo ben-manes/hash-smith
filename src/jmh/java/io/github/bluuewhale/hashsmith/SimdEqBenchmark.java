@@ -105,6 +105,11 @@ public class SimdEqBenchmark {
         return m.toLong();
     }
 
+    @CompilerControl(CompilerControl.Mode.DONT_INLINE)
+    private static boolean anyTrue(VectorMask<Byte> m) {
+        return m.anyTrue();
+    }
+
     /**
      * (A) Measure only ByteVector.fromArray.
      */
@@ -152,32 +157,47 @@ public class SimdEqBenchmark {
      * (C-loop) Repeated mask.toLong() to reduce per-invocation overhead impact.
      */
     @Benchmark
-    public long toLong_loop(S s) {
-        long acc = 0L;
+    public void toLong_loop(S s, Blackhole bh) {
         for (int i = 0; i < LOOP; i++) {
-            acc ^= toLong(s.mask);
+            bh.consume(toLong(s.mask));
         }
-        return acc;
+    }
+
+    /**
+     * (E) Measure only mask.anyTrue().
+     * The mask is created during setup to avoid measuring eq() here.
+     */
+    @Benchmark
+    public boolean anyTrue_only(S s) {
+        return anyTrue(s.mask);
+    }
+
+    /**
+     * (E-loop) Repeated mask.anyTrue() to reduce per-invocation overhead impact.
+     */
+    @Benchmark
+    public void anyTrue_loop(S s, Blackhole bh) {
+        for (int i = 0; i < LOOP; i++) {
+            bh.consume(anyTrue(s.mask));
+        }
     }
 
     /**
      * (D) Measure the full pipeline (load + eq + toLong), matching SwissMap's simdEq shape.
      */
     @Benchmark
-    public long pipeline_load_eq_toLong(S s) {
-        return toLong(eq(load(s.array, s.base), s.value));
+    public void pipeline_load_eq_toLong(S s, Blackhole bh) {
+        bh.consume(toLong(eq(load(s.array, s.base), s.value)));
     }
 
     /**
      * (D-loop) Repeated pipeline to reduce per-invocation overhead impact.
      */
     @Benchmark
-    public long pipeline_loop(S s) {
-        long acc = 0L;
+    public void pipeline_loop(S s, Blackhole bh) {
         for (int i = 0; i < LOOP; i++) {
-            acc ^= toLong(eq(load(s.array, s.base), s.value));
+            bh.consume(toLong(eq(load(s.array, s.base), s.value)));
         }
-        return acc;
     }
 }
 
