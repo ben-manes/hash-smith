@@ -97,7 +97,7 @@ dependencies {
 
 ## Benchmark (JMH, CPU ns/op)
 - All benchmarks were run on Windows 11 (x64) with Eclipse Temurin JDK 21.0.9, on an AMD Ryzen 5 5600 (6C/12T).
-- At high load factors SwissMap keeps competitive throughput against other open-addressing tables and stays close to JDK HashMap performance. 
+- At high load factors SwissMap keeps competitive throughput against other open-addressing tables and stays close to JDK HashMap performance. In some benchmarks it also comes out ahead by a large margin.
 
 | put hit                                     | put miss                                      |
 |---------------------------------------------|-----------------------------------------------|
