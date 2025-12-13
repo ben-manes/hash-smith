@@ -524,8 +524,16 @@ public class SwissMap<K, V> extends AbstractArrayMap<K, V> {
 
 		@Override
 		public boolean remove(Object o) {
-			if (!containsKey(o)) return false;
-			SwissMap.this.remove(o);
+			int idx = SwissMap.this.findIndex(o);
+			if (idx < 0) return false;
+			ctrl[idx] = DELETED;
+			keys[idx] = null;
+			vals[idx] = null;
+			size--;
+			tombstones++;
+			// NOTE: do not rehash from iterator.remove().
+			// Some JDK algorithms (e.g. AbstractCollection.retainAll) prefetch iterator state (next index) before calling remove().
+			// Rehash would rebuild ctrl/keys and can invalidate that prefetched index, causing the iterator to yield null/empty slots.
 			return true;
 		}
 
@@ -571,6 +579,9 @@ public class SwissMap<K, V> extends AbstractArrayMap<K, V> {
 			vals[idx] = null;
 			size--;
 			tombstones++;
+			// NOTE: do not rehash from iterator.remove().
+			// Some JDK algorithms (e.g. AbstractCollection.retainAll) prefetch iterator state (next index) before calling remove().
+			// Rehash would rebuild ctrl/keys and can invalidate that prefetched index, causing the iterator to yield null/empty slots.
 			return true;
 		}
 
