@@ -1,10 +1,13 @@
 # HashSmith: Fast & memory efficient hash tables for Java
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.bluuewhale/hashsmith.svg)](https://central.sonatype.com/artifact/io.github.bluuewhale/hashsmith)
+[![javadoc](https://javadoc.io/badge2/io.github.bluuewhale/hashsmith/javadoc.svg)](https://javadoc.io/doc/io.github.bluuewhale/hashsmith)
+[![Status: experimental](https://img.shields.io/badge/status-experimental-orange.svg)](#overview)
+
 <p align="center">
   <img src="images/logo.png" alt="HashSmith logo" width="330">
 </p>
-
-<!-- TODO: Add badges (CI, License, Release) -->
 
 > ⚠️ This project is experimental and not ready for production use.
 
