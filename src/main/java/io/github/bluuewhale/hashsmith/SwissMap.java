@@ -103,26 +103,17 @@ public class SwissMap<K, V> extends AbstractArrayMap<K, V> {
 	}
 
 	/**
-	 * Compare bytes in word against b; return 8-bit mask of matches.
+	 * Compare bytes in word against b; return packed 8-bit mask of matches.
 	 */
-	private long eqMask(long word, byte b) {
+	private int eqMask(long word, byte b) {
 		// XOR with the broadcasted fingerprint so that matching bytes become 0 and non-matching stay non-zero.
 		long x = word ^ broadcast(b);
 		// Subtract 1 from each byte: bytes that were 0 underflow and set their MSB (0x80), others keep MSB unchanged.
 		// AND with ~x to clear any MSB that came from originally non-zero bytes (we only want underflow-triggered MSBs).
 		// AND with BITMASK_MSB to keep just the per-byte MSB flags (one per lane).
 		long m = (x - BITMASK_LSB) & ~x & BITMASK_MSB;
-		// Finally shift right by 7 so each lane's MSB lands in bits 0..7 (lane index -> bit index) for easy masking.
-		// For example:
-		// 	 80 00 80 00 80 00 00 00  
-		//   01 00 01 00 01 00 00 00
-		return m >>> 7;
-	}
-
-	// Translate an 8-bit spaced mask (bits set at 0,8,16,...) to a byte-slot index 0..7.
-	// Precondition: mask != 0. trailingZeros gives 0,8,16,...; >>> 3 converts to slot offset.
-	private int nextEmptySlotIndex(long mask) {
-		return (int) (Long.numberOfTrailingZeros(mask) >>> 3);
+		// Compress spaced MSBs (bits 7,15,...) into the low byte (bit0..7).
+		return (int) ((m * 0x0204_0810_2040_81L) >>> 56);
 	}
 
 	private byte ctrlAt(long[] ctrl, int idx) {
@@ -198,9 +189,9 @@ public class SwissMap<K, V> extends AbstractArrayMap<K, V> {
 		for (;;) {
 			int base = g * GROUP_SIZE;
 			long word = loadCtrlWord(g);
-			long emptyMask = eqMask(word, EMPTY);
+			int emptyMask = eqMask(word, EMPTY);
 			if (emptyMask != 0) {
-				int idx = base + nextEmptySlotIndex(emptyMask);
+				int idx = base + Integer.numberOfTrailingZeros(emptyMask);
 				setCtrlAt(ctrl, idx, h2);
 				setEntryAt(idx, key, value);
 				size++;
@@ -305,9 +296,9 @@ public class SwissMap<K, V> extends AbstractArrayMap<K, V> {
         for (;;) {
             int base = g * GROUP_SIZE;
             long word = loadCtrlWord(g);
-            long eqMask = eqMask(word, h2);
+			int eqMask = eqMask(word, h2);
             while (eqMask != 0) {
-                int idx = base + nextEmptySlotIndex(eqMask);
+                int idx = base + Integer.numberOfTrailingZeros(eqMask);
                 if (Objects.equals(keys[idx], key)) {
                     V old = castValue(vals[idx]);
                     vals[idx] = value;
@@ -316,12 +307,12 @@ public class SwissMap<K, V> extends AbstractArrayMap<K, V> {
                 eqMask &= eqMask - 1; // clear LSB
             }
             if (firstTombstone < 0) {
-                long delMask = eqMask(word, DELETED);
-                if (delMask != 0) firstTombstone = base + nextEmptySlotIndex(delMask);
+				int delMask = eqMask(word, DELETED);
+                if (delMask != 0) firstTombstone = base + Integer.numberOfTrailingZeros(delMask);
             }
-            long emptyMask = eqMask(word, EMPTY);
+			int emptyMask = eqMask(word, EMPTY);
             if (emptyMask != 0) {
-                int idx = base + nextEmptySlotIndex(emptyMask);
+                int idx = base + Integer.numberOfTrailingZeros(emptyMask);
                 int target = (firstTombstone >= 0) ? firstTombstone : idx;
                 return insertAt(target, key, value, h2);
             }
@@ -370,15 +361,15 @@ public class SwissMap<K, V> extends AbstractArrayMap<K, V> {
 		for (;;) {
 			int base = g * GROUP_SIZE;
 			long word = loadCtrlWord(g);
-			long eqMask = eqMask(word, h2);
+			int eqMask = eqMask(word, h2);
 			while (eqMask != 0) {
-				int idx = base + nextEmptySlotIndex(eqMask);
+				int idx = base + Integer.numberOfTrailingZeros(eqMask);
 				if (Objects.equals(keys[idx], key)) {
 					return idx;
 				}
 				eqMask &= eqMask - 1; // clear LSB
 			}
-			long emptyMask = eqMask(word, EMPTY);
+			int emptyMask = eqMask(word, EMPTY);
 			if (emptyMask != 0) {
 				return -1;
 			}
