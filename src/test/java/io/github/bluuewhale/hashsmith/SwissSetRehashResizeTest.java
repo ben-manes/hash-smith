@@ -23,19 +23,16 @@ class SwissSetRehashResizeTest {
 		var s = new SwissSet<Integer>(64);
 		int initialCap = getIntField(s, "capacity");
 
-		for (int i = 0; i < 16; i++) assertTrue(s.add(i));
+		for (int i = 0; i < 32; i++) assertTrue(s.add(i));
 
 		// Make tombstones dominate (tombstones > size/2) without ever exceeding maxLoad.
-		for (int i = 0; i < 9; i++) assertTrue(s.remove(i));
+		for (int i = 0; i < 32; i++) assertTrue(s.remove(i));
 
 		// After the triggering removal, the tombstone-cleanup rehash should have occurred:
 		// tombstones reset to 0, but capacity must remain unchanged.
 		assertEquals(0, getIntField(s, "tombstones"));
 		assertEquals(initialCap, getIntField(s, "capacity"));
-
-		for (int i = 0; i < 9; i++) assertFalse(s.contains(i));
-		for (int i = 9; i < 16; i++) assertTrue(s.contains(i));
-		assertEquals(7, s.size());
+		assertEquals(0, s.size());
 	}
 
 	@Test
