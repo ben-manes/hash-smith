@@ -269,7 +269,10 @@ public final class ConcurrentSwissMap<K, V> extends AbstractMap<K, V> {
 				if (!map.containsKey(key)) return false;
 				Object actual = map.get(key);
 				if (!Objects.equals(actual, expected)) return false;
+				int before = map.size();
 				map.remove(key);
+				int after = map.size();
+				if (after != before) totalSize.add((long) after - before);
 				return true;
 			} finally {
 				lock.unlockWrite(stamp);
