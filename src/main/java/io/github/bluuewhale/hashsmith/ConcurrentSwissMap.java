@@ -78,29 +78,37 @@ public final class ConcurrentSwissMap<K, V> extends AbstractMap<K, V> {
 		return Utils.ceilPow2(Math.max(1, cores * 2));
 	}
 
-	private int shardOf(Object key) {
+	private static int smearedHashNonNull(Object key) {
 		if (key == null) throw new NullPointerException("Null keys not supported");
-		int h = Hashing.smearedHash(key);
+		return Hashing.smearedHash(key);
+	}
+
+	private int shardOfHash(int smearedHash) {
 		if (shardBits == 0) return 0;
 		// Leave the lower 7 bits for SwissMap's H2 tag; shard by the remaining bits (H1).
-		int idx = (h >>> 7) >>> shardShift;
+		int idx = (smearedHash >>> 7) >>> shardShift;
 		return idx;
+	}
+
+	private int shardOf(Object key) {
+		return shardOfHash(smearedHashNonNull(key));
 	}
 
 	@Override
 	public V get(Object key) {
-		int idx = shardOf(key);
+		int h = smearedHashNonNull(key);
+		int idx = shardOfHash(h);
 		StampedLock lock = locks[idx];
 		SwissMap<K, V> map = maps[idx];
 
 		long stamp = lock.tryOptimisticRead();
-		V v = map.get(key);
+		V v = map.get(key, h);
 		if (lock.validate(stamp)) return v;
 
 		// Fallback to read lock.
 		stamp = lock.readLock();
 		try {
-			return map.get(key);
+			return map.get(key, h);
 		} finally {
 			lock.unlockRead(stamp);
 		}
@@ -108,18 +116,19 @@ public final class ConcurrentSwissMap<K, V> extends AbstractMap<K, V> {
 
 	@Override
 	public boolean containsKey(Object key) {
-		int idx = shardOf(key);
+		int h = smearedHashNonNull(key);
+		int idx = shardOfHash(h);
 		StampedLock lock = locks[idx];
 		SwissMap<K, V> map = maps[idx];
 
 		long stamp = lock.tryOptimisticRead();
-		boolean ok = map.containsKey(key);
+		boolean ok = map.containsKey(key, h);
 		if (lock.validate(stamp)) return ok;
 
 		// Fallback to read lock.
 		stamp = lock.readLock();
 		try {
-			return map.containsKey(key);
+			return map.containsKey(key, h);
 		} finally {
 			lock.unlockRead(stamp);
 		}
@@ -143,14 +152,15 @@ public final class ConcurrentSwissMap<K, V> extends AbstractMap<K, V> {
 
 	@Override
 	public V put(K key, V value) {
-		int idx = shardOf(key);
+		int h = smearedHashNonNull(key);
+		int idx = shardOfHash(h);
 		StampedLock lock = locks[idx];
 		SwissMap<K, V> map = maps[idx];
 
 		long stamp = lock.writeLock();
 		try {
 			int before = map.size();
-			V old = map.put(key, value);
+			V old = map.put(key, value, h);
 			int after = map.size();
 			if (after != before) totalSize.add((long) after - before);
 			return old;
@@ -161,14 +171,15 @@ public final class ConcurrentSwissMap<K, V> extends AbstractMap<K, V> {
 
 	@Override
 	public V remove(Object key) {
-		int idx = shardOf(key);
+		int h = smearedHashNonNull(key);
+		int idx = shardOfHash(h);
 		StampedLock lock = locks[idx];
 		SwissMap<K, V> map = maps[idx];
 
 		long stamp = lock.writeLock();
 		try {
 			int before = map.size();
-			V old = map.remove(key);
+			V old = map.remove(key, h);
 			int after = map.size();
 			if (after != before) totalSize.add((long) after - before);
 			return old;
@@ -269,16 +280,17 @@ public final class ConcurrentSwissMap<K, V> extends AbstractMap<K, V> {
 			if (!(o instanceof Entry<?, ?> e)) return false;
 			Object key = e.getKey();
 			Object expected = e.getValue();
-			int idx = shardOf(key);
+			int h = smearedHashNonNull(key);
+			int idx = shardOfHash(h);
 			StampedLock lock = locks[idx];
 			SwissMap<K, V> map = maps[idx];
 			long stamp = lock.writeLock();
 			try {
-				if (!map.containsKey(key)) return false;
-				Object actual = map.get(key);
+				if (!map.containsKey(key, h)) return false;
+				Object actual = map.get(key, h);
 				if (!Objects.equals(actual, expected)) return false;
 				int before = map.size();
-				map.remove(key);
+				map.remove(key, h);
 				int after = map.size();
 				if (after != before) totalSize.add((long) after - before);
 				return true;

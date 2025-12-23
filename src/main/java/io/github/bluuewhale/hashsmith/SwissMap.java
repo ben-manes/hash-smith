@@ -82,6 +82,45 @@ public class SwissMap<K, V> extends AbstractArrayMap<K, V> {
 		return hashNonNull(key);
 	}
 
+	/**
+	 * Package-private fast path: get with a precomputed smeared hash (e.g., from {@link ConcurrentSwissMap}
+	 * sharding) to avoid re-hashing the key on lookup.
+	 */
+	V get(Object key, int smearedHash) {
+		int idx = findIndexHashed(key, smearedHash);
+		return (idx >= 0) ? castValue(vals[idx]) : null;
+	}
+
+	/**
+	 * Package-private "secret" fast path: {@code containsKey} with a precomputed smeared hash.
+	 */
+	boolean containsKey(Object key, int smearedHash) {
+		return findIndexHashed(key, smearedHash) >= 0;
+	}
+
+	/**
+	 * Package-private "secret" fast path: {@code put} with a precomputed smeared hash.
+	 */
+	V put(K key, V value, int smearedHash) {
+		maybeRehash();
+		return putValHashed(key, value, smearedHash);
+	}
+
+	/**
+	 * Package-private "secret" fast path: {@code remove} with a precomputed smeared hash.
+	 */
+	V remove(Object key, int smearedHash) {
+		int idx = findIndexHashed(key, smearedHash);
+		if (idx < 0) return null;
+		V old = castValue(vals[idx]);
+		setCtrlAt(ctrl, idx, DELETED);
+		setEntryAt(idx, null, null);
+		size--;
+		tombstones++;
+		maybeRehash();
+		return old;
+	}
+
 	/* Control byte inspectors */
 	private boolean isDeleted(byte c) { return c == DELETED; }
 	private boolean isFull(byte c) { return c >= 0 && c <= H2_MASK; } // H2 in [0,127]
@@ -286,44 +325,54 @@ public class SwissMap<K, V> extends AbstractArrayMap<K, V> {
 
     private V putVal(K key, V value) {
         int h = hash(key);
-        int h1 = h1(h);
-        byte h2 = h2(h);
-        int mask = groupMask; // Local snapshot of the mask for the probe loop
-        int firstTombstone = -1; 
-        int visitedGroups = 0;
-        int g = h1 & mask; // optimized modulo operation (same as h1 % nGroups)
-        int step = 0; // triangular probing step over groups
-        for (;;) {
-            int base = g * GROUP_SIZE;
-            long word = loadCtrlWord(g);
-			int eqMask = eqMask(word, h2);
-            while (eqMask != 0) {
-                int idx = base + Integer.numberOfTrailingZeros(eqMask);
-                Object k = keys[idx];
-                // NULL-safe: an optimistic reader may observe ctrl and then see a null key while a writer is publishing.
-                if (k == key || (k != null && k.equals(key))) {
-                    V old = castValue(vals[idx]);
-                    vals[idx] = value;
-                    return old;
-                }
-                eqMask &= eqMask - 1; // clear LSB
-            }
-            if (firstTombstone < 0) {
-				int delMask = eqMask(word, DELETED);
-                if (delMask != 0) firstTombstone = base + Integer.numberOfTrailingZeros(delMask);
-            }
-			int emptyMask = eqMask(word, EMPTY);
-            if (emptyMask != 0) {
-                int idx = base + Integer.numberOfTrailingZeros(emptyMask);
-                int target = (firstTombstone >= 0) ? firstTombstone : idx;
-                return insertAt(target, key, value, h2);
-            }
-            if (++visitedGroups >= numGroups) {
-                throw new IllegalStateException("Probe cycle exhausted; table appears full of tombstones");
-            }
-            g = (g + (++step)) & mask; // triangular (quadratic) probing over groups
-        }
+		return putValHashed(key, value, h);
     }
+
+	/**
+	 * Hash-injected variant of {@code putVal}. Used to reuse a precomputed {@link Hashing#smearedHash(Object)}
+	 * (e.g., computed for sharding) and avoid hashing the same key twice.
+	 *
+	 * Precondition: {@code smearedHash} must be {@link Hashing#smearedHash(Object)} for {@code key}.
+	 */
+	private V putValHashed(K key, V value, int smearedHash) {
+		int h1 = h1(smearedHash);
+		byte h2 = h2(smearedHash);
+		int mask = groupMask; // Local snapshot of the mask for the probe loop
+		int firstTombstone = -1;
+		int visitedGroups = 0;
+		int g = h1 & mask; // optimized modulo operation (same as h1 % nGroups)
+		int step = 0; // triangular probing step over groups
+		for (;;) {
+			int base = g * GROUP_SIZE;
+			long word = loadCtrlWord(g);
+			int eqMask = eqMask(word, h2);
+			while (eqMask != 0) {
+				int idx = base + Integer.numberOfTrailingZeros(eqMask);
+				Object k = keys[idx];
+				// NULL-safe: an optimistic reader may observe ctrl and then see a null key while a writer is publishing.
+				if (k == key || (k != null && k.equals(key))) {
+					V old = castValue(vals[idx]);
+					vals[idx] = value;
+					return old;
+				}
+				eqMask &= eqMask - 1; // clear LSB
+			}
+			if (firstTombstone < 0) {
+				int delMask = eqMask(word, DELETED);
+				if (delMask != 0) firstTombstone = base + Integer.numberOfTrailingZeros(delMask);
+			}
+			int emptyMask = eqMask(word, EMPTY);
+			if (emptyMask != 0) {
+				int idx = base + Integer.numberOfTrailingZeros(emptyMask);
+				int target = (firstTombstone >= 0) ? firstTombstone : idx;
+				return insertAt(target, key, value, h2);
+			}
+			if (++visitedGroups >= numGroups) {
+				throw new IllegalStateException("Probe cycle exhausted; table appears full of tombstones");
+			}
+			g = (g + (++step)) & mask; // triangular (quadratic) probing over groups
+		}
+	}
 
 	@Override
 	public void clear() {
@@ -355,9 +404,20 @@ public class SwissMap<K, V> extends AbstractArrayMap<K, V> {
 	protected int findIndex(Object key) {
 		// Disallow null keys even on empty maps for consistent Map semantics in this project.
 		int h = hashNonNull(key);
+		return findIndexHashed(key, h);
+	}
+
+	/**
+	 * Hash-injected lookup used by {@link #findIndex(Object)} and package-private fast paths.
+	 * Avoids re-hashing when callers already have {@link Hashing#smearedHash(Object)} (e.g., shard selection).
+	 *
+	 * Preconditions: {@code key} is non-null, and {@code smearedHash} equals {@link Hashing#smearedHash(Object)}
+	 * for that key.
+	 */
+	private int findIndexHashed(Object key, int smearedHash) {
 		if (size == 0) return -1;
-		int h1 = h1(h);
-		byte h2 = h2(h);
+		int h1 = h1(smearedHash);
+		byte h2 = h2(smearedHash);
 		int mask = groupMask; // Local snapshot of the mask for the probe loop.
 		int visitedGroups = 0;
 		int g = h1 & mask; // optimized modulo operation (same as h1 % nGroups)
@@ -368,9 +428,9 @@ public class SwissMap<K, V> extends AbstractArrayMap<K, V> {
 			int eqMask = eqMask(word, h2);
 			while (eqMask != 0) {
 				int idx = base + Integer.numberOfTrailingZeros(eqMask);
-                Object k = keys[idx];
-                // NULL-safe: an optimistic reader may observe ctrl and then see a null key while a writer is publishing.
-                if (k == key || (k != null && k.equals(key))) {
+				Object k = keys[idx];
+				// NULL-safe: an optimistic reader may observe ctrl and then see a null key while a writer is publishing.
+				if (k == key || (k != null && k.equals(key))) {
 					return idx;
 				}
 				eqMask &= eqMask - 1; // clear LSB
