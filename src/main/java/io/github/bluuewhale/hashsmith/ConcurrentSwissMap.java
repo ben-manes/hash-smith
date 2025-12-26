@@ -31,6 +31,8 @@ public final class ConcurrentSwissMap<K, V> extends AbstractMap<K, V> {
 	private final StampedLock[] locks;
 	private final SwissMap<K, V>[] maps;
 	private final int shardBits;
+	/** Right-shift count to extract shard bits from the MSBs of the smeared hash. */
+	private final int shardShift;
 
 	public ConcurrentSwissMap() {
 		this(defaultShardCount(), DEFAULT_INITIAL_CAPACITY, DEFAULT_LOAD_FACTOR);
@@ -48,9 +50,10 @@ public final class ConcurrentSwissMap<K, V> extends AbstractMap<K, V> {
 		if (shardCount <= 0) throw new IllegalArgumentException("shardCount must be > 0");
 		int sc = Utils.ceilPow2(shardCount);
 		this.shardBits = Integer.numberOfTrailingZeros(sc);
+		this.shardShift = Integer.SIZE - shardBits;
 		// SwissMap stores H2 in the lower 7 bits (control byte tag). Do not use those bits for sharding.
 		// We shard by the high bits of H1 (hash >>> 7), mirroring hashbrown's "leave tag bits out" approach.
-		int shift = (Integer.SIZE - 7) - shardBits;
+		int shift = shardShift - 7;
 		if (shift < 0) {
 			throw new IllegalArgumentException("shardCount too large: max shards is 2^(Integer.SIZE-7)");
 		}
@@ -82,7 +85,7 @@ public final class ConcurrentSwissMap<K, V> extends AbstractMap<K, V> {
 	private int shardOfHash(int smearedHash) {
 		if (shardBits == 0) return 0;
 		// shardBits are taken from the MSBs of the smeared hash.
-		return smearedHash >>> (Integer.SIZE - shardBits);
+		return smearedHash >>> shardShift;
 	}
 
 	private int shardOf(Object key) {
