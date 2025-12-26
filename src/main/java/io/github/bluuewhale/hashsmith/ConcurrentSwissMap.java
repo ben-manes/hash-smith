@@ -101,14 +101,14 @@ public final class ConcurrentSwissMap<K, V> extends AbstractMap<K, V> {
 
 		long stamp = lock.tryOptimisticRead();
 		if (stamp != 0L) {
-			V v = map.get(key, h);
+			V v = map.getConcurrent(key, h);
 			if (lock.validate(stamp)) return v;
 		}
 
 		// Fallback to read lock.
 		stamp = lock.readLock();
 		try {
-			return map.get(key, h);
+			return map.getConcurrent(key, h);
 		} finally {
 			lock.unlockRead(stamp);
 		}
@@ -123,14 +123,14 @@ public final class ConcurrentSwissMap<K, V> extends AbstractMap<K, V> {
 
 		long stamp = lock.tryOptimisticRead();
 		if (stamp != 0L) {
-			boolean ok = map.containsKey(key, h);
+			boolean ok = map.containsKeyConcurrent(key, h);
 			if (lock.validate(stamp)) return ok;
 		}
 
 		// Fallback to read lock.
 		stamp = lock.readLock();
 		try {
-			return map.containsKey(key, h);
+			return map.containsKeyConcurrent(key, h);
 		} finally {
 			lock.unlockRead(stamp);
 		}
@@ -161,7 +161,7 @@ public final class ConcurrentSwissMap<K, V> extends AbstractMap<K, V> {
 
 		long stamp = lock.writeLock();
 		try {
-			return map.put(key, value, h);
+			return map.putConcurrent(key, value, h);
 		} finally {
 			lock.unlockWrite(stamp);
 		}
@@ -176,7 +176,7 @@ public final class ConcurrentSwissMap<K, V> extends AbstractMap<K, V> {
 
 		long stamp = lock.writeLock();
 		try {
-			return map.remove(key, h);
+			return map.removeConcurrent(key, h);
 		} finally {
 			lock.unlockWrite(stamp);
 		}
@@ -297,10 +297,10 @@ public final class ConcurrentSwissMap<K, V> extends AbstractMap<K, V> {
 			SwissMap<K, V> map = maps[idx];
 			long stamp = lock.writeLock();
 			try {
-				if (!map.containsKey(key, h)) return false;
-				Object actual = map.get(key, h);
+				if (!map.containsKeyConcurrent(key, h)) return false;
+				Object actual = map.getConcurrent(key, h);
 				if (!Objects.equals(actual, expected)) return false;
-				map.remove(key, h);
+				map.removeConcurrent(key, h);
 				return true;
 			} finally {
 				lock.unlockWrite(stamp);

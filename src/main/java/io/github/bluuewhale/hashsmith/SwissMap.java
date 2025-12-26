@@ -7,6 +7,8 @@ import java.util.Arrays;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 import java.util.Objects;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 
 /**
  * SwissTable variant: packs control bytes into 8-byte words and uses SWAR
@@ -37,7 +39,25 @@ public class SwissMap<K, V> extends AbstractArrayMap<K, V> {
 	private Object[] keys;   // key storage
 	private Object[] vals;   // value storage
 	private int tombstones;  // deleted slots
-	private int groupMask;   // cached (nGroups - 1), valid because nGroups is power-of-two
+
+	/**
+	 * Control word access needs to participate in the publish protocol used by {@link ConcurrentSwissMap}
+	 * optimistic reads. Writers publish entry (keys/vals) first, then publish ctrl FULL tag.
+	 * Readers must observe ctrl with acquire semantics before reading keys/vals.
+	 */
+	private static final VarHandle CTRL_WORD = MethodHandles.arrayElementVarHandle(long[].class);
+
+	private static long ctrlWordPlain(long[] ctrl, int group) {
+		return (long) CTRL_WORD.get(ctrl, group);
+	}
+
+	private static long ctrlWordAcquire(long[] ctrl, int group) {
+		return (long) CTRL_WORD.getAcquire(ctrl, group);
+	}
+
+	private static void ctrlWordRelease(long[] ctrl, int group, long word) {
+		CTRL_WORD.setRelease(ctrl, group, word);
+	}
 
 	public SwissMap() {
 		this(16, DEFAULT_LOAD_FACTOR);
@@ -55,7 +75,6 @@ public class SwissMap<K, V> extends AbstractArrayMap<K, V> {
 	protected void init(int desiredCapacity) {
 		int nGroups = Math.max(1, (desiredCapacity + GROUP_SIZE - 1) / GROUP_SIZE);
 		nGroups = ceilPow2(nGroups);
-		this.groupMask = nGroups - 1;
 		this.capacity = nGroups * GROUP_SIZE;
 
 		this.ctrl = new long[nGroups];
@@ -119,6 +138,49 @@ public class SwissMap<K, V> extends AbstractArrayMap<K, V> {
 		return old;
 	}
 
+	/**
+	 * Package-private concurrent-safe fast path: get with a precomputed smeared hash.
+	 * <p>
+	 * Intended for {@link ConcurrentSwissMap} optimistic reads. Uses acquire-load of ctrl words so that
+	 * observing a FULL ctrl tag implies the corresponding key/value have been published by the writer.
+	 */
+	V getConcurrent(Object key, int smearedHash) {
+		int idx = findIndexHashedConcurrent(key, smearedHash);
+		return (idx >= 0) ? castValue(vals[idx]) : null;
+	}
+
+	/**
+	 * Package-private concurrent-safe fast path: containsKey with a precomputed smeared hash.
+	 */
+	boolean containsKeyConcurrent(Object key, int smearedHash) {
+		return findIndexHashedConcurrent(key, smearedHash) >= 0;
+	}
+
+	/**
+	 * Package-private concurrent-safe fast path: put with a precomputed smeared hash.
+	 * Writers must publish entry (keys/vals) before publishing ctrl FULL tag (release-store).
+	 */
+	V putConcurrent(K key, V value, int smearedHash) {
+		maybeRehash();
+		return putValHashedConcurrent(key, value, smearedHash);
+	}
+
+	/**
+	 * Package-private concurrent-safe fast path: remove with a precomputed smeared hash.
+	 * Publishes ctrl=DELETED (release-store) before clearing key/value to avoid readers observing
+	 * a FULL ctrl tag with a null key.
+	 */
+	V removeConcurrent(Object key, int smearedHash) {
+		int idx = findIndexHashedConcurrent(key, smearedHash);
+		if (idx < 0) return null;
+		V old = castValue(vals[idx]);
+		deleteAtConcurrent(idx);
+		size--;
+		tombstones++;
+		maybeRehash();
+		return old;
+	}
+
 	/* Control byte inspectors */
 	private boolean isDeleted(byte c) { return c == DELETED; }
 	private boolean isFull(byte c) { return c >= 0 && c <= H2_MASK; } // H2 in [0,127]
@@ -154,9 +216,18 @@ public class SwissMap<K, V> extends AbstractArrayMap<K, V> {
 	private void setCtrlAt(long[] ctrl, int idx, byte value) {
 		int group = idx >> 3;
 		int offset = (idx & 7) << 3;
-		long word = ctrl[group];
+		long word = ctrlWordPlain(ctrl, group);
 		long mask = 0xFFL << offset;
+		// Plain store for the non-concurrent SwissMap contract.
 		ctrl[group] = (word & ~mask) | (toUnsignedByte(value) << offset);
+	}
+
+	private void setCtrlAtRelease(long[] ctrl, int idx, byte value) {
+		int group = idx >> 3;
+		int offset = (idx & 7) << 3;
+		long word = ctrlWordPlain(ctrl, group);
+		long mask = 0xFFL << offset;
+		ctrlWordRelease(ctrl, group, (word & ~mask) | (toUnsignedByte(value) << offset));
 	}
 
 	private void setEntryAt(int idx, K key, V value) {
@@ -185,7 +256,6 @@ public class SwissMap<K, V> extends AbstractArrayMap<K, V> {
 
 		int desiredGroups = Math.max(1, (Math.max(newCapacity, GROUP_SIZE) + GROUP_SIZE - 1) / GROUP_SIZE);
 		desiredGroups = ceilPow2(desiredGroups);
-		this.groupMask = desiredGroups - 1;
 		this.capacity = desiredGroups * GROUP_SIZE;
 		this.ctrl = new long[desiredGroups];
 		Arrays.fill(this.ctrl, broadcast(EMPTY));
@@ -212,9 +282,9 @@ public class SwissMap<K, V> extends AbstractArrayMap<K, V> {
 		int h1 = h1(h);
 		byte h2 = h2(h);
 		long[] ctrl = this.ctrl; // local snapshot 
-		int mask = groupMask; // local snapshot
-		int g = h1 & mask; // optimized modulo operation (same as h1 % nGroups)
-		int step = 0; // triangular probing step over groups
+		int mask = ctrl.length - 1; // Derive mask from the array we index into (ctrl) to help JIT range-check elimination.
+		int g = h1 & mask;
+		int step = 0;
 		for (;;) {
 			long word = ctrl[g];
 			int emptyMask = eqMask(word, EMPTY);
@@ -334,7 +404,8 @@ public class SwissMap<K, V> extends AbstractArrayMap<K, V> {
 		long[] ctrl = this.ctrl; // local snapshot
 		Object[] keys = this.keys; // local snapshot
 		Object[] vals = this.vals; // local snapshot
-		int mask = groupMask; // local snapshot
+		// Derive mask from the array we index into (ctrl) to help JIT range-check elimination.
+		int mask = ctrl.length - 1;
 		int g = h1 & mask; // optimized modulo operation (same as h1 % nGroups)
 		int step = 0; // triangular probing step over groups
 		int firstTombstone = -1;
@@ -345,8 +416,8 @@ public class SwissMap<K, V> extends AbstractArrayMap<K, V> {
 			while (eqMask != 0) {
 				int idx = base + Integer.numberOfTrailingZeros(eqMask);
 				Object k = keys[idx];
-				// NULL-safe: an optimistic reader may observe ctrl and then see a null key while a writer is publishing.
-				if (k == key || (k != null && k.equals(key))) {
+				// Non-concurrent path does not need to keep the NULL-safe check.
+				if (k == key || k.equals(key)) {
 					V old = castValue(vals[idx]);
 					vals[idx] = value;
 					return old;
@@ -364,6 +435,45 @@ public class SwissMap<K, V> extends AbstractArrayMap<K, V> {
 				return insertAt(target, key, value, h2);
 			}
 			g = (g + (++step)) & mask; // triangular (quadratic) probing over groups
+		}
+	}
+
+	private V putValHashedConcurrent(K key, V value, int smearedHash) {
+		int h1 = h1(smearedHash);
+		byte h2 = h2(smearedHash);
+		long[] ctrl = this.ctrl; // local snapshot
+		Object[] keys = this.keys; // local snapshot
+		Object[] vals = this.vals; // local snapshot
+		int mask = ctrl.length - 1;
+		int g = h1 & mask;
+		int step = 0;
+		int firstTombstone = -1;
+		for (;;) {
+			long word = ctrl[g]; // writer-side: plain is fine
+			int base = g << 3;
+			int eqMask = eqMask(word, h2);
+			while (eqMask != 0) {
+				int idx = base + Integer.numberOfTrailingZeros(eqMask);
+				Object k = keys[idx];
+				// Writers are under shard write lock; No need to keep the NULL-safe check.
+				if (k == key || k.equals(key)) {
+					V old = castValue(vals[idx]);
+					vals[idx] = value;
+					return old;
+				}
+				eqMask &= eqMask - 1;
+			}
+			if (firstTombstone < 0) {
+				int delMask = eqMask(word, DELETED);
+				if (delMask != 0) firstTombstone = base + Integer.numberOfTrailingZeros(delMask);
+			}
+			int emptyMask = eqMask(word, EMPTY);
+			if (emptyMask != 0) {
+				int idx = base + Integer.numberOfTrailingZeros(emptyMask);
+				int target = (firstTombstone >= 0) ? firstTombstone : idx;
+				return insertAtConcurrent(target, key, value, h2);
+			}
+			g = (g + (++step)) & mask;
 		}
 	}
 
@@ -413,9 +523,9 @@ public class SwissMap<K, V> extends AbstractArrayMap<K, V> {
 		byte h2 = h2(smearedHash);
 		long[] ctrl = this.ctrl; // local snapshot
 		Object[] keys = this.keys; // local snapshot
-		int mask = groupMask; // local snapshot
-		int g = h1 & mask; // optimized modulo operation (same as h1 % nGroups)
-		int step = 0; // triangular probing step over groups
+		int mask = ctrl.length - 1; // Derive mask from the array we index into (ctrl) to help JIT range-check elimination.
+		int g = h1 & mask;
+		int step = 0;
 		for (;;) {
 			long word = ctrl[g];
 			int eqMask = eqMask(word, h2);
@@ -423,8 +533,8 @@ public class SwissMap<K, V> extends AbstractArrayMap<K, V> {
 				int base = g << 3;
 				int idx = base + Integer.numberOfTrailingZeros(eqMask);
 				Object k = keys[idx];
-				// NULL-safe: an optimistic reader may observe ctrl and then see a null key while a writer is publishing.
-				if (k == key || (k != null && k.equals(key))) {
+				// Non-concurrent path does not need to keep the NULL-safe check.
+				if (k == key || k.equals(key)) {
 					return idx;
 				}
 				eqMask &= eqMask - 1; // clear LSB
@@ -437,6 +547,35 @@ public class SwissMap<K, V> extends AbstractArrayMap<K, V> {
 		}
 	}
 
+	private int findIndexHashedConcurrent(Object key, int smearedHash) {
+		if (size == 0) return -1;
+		int h1 = h1(smearedHash);
+		byte h2 = h2(smearedHash);
+		long[] ctrl = this.ctrl; // local snapshot
+		Object[] keys = this.keys; // local snapshot
+		int mask = ctrl.length - 1;
+		int g = h1 & mask;
+		int step = 0;
+		for (;;) {
+			// Acquire-load ensures FULL ctrl implies key/value publish is visible.
+			long word = ctrlWordAcquire(ctrl, g);
+			int eqMask = eqMask(word, h2);
+			while (eqMask != 0) {
+				int base = g << 3;
+				int idx = base + Integer.numberOfTrailingZeros(eqMask);
+				Object k = keys[idx];
+				// Keep NULL-safe check to survive concurrent deletes without crashing before stamp validation.
+				if (k == key || (k != null && k.equals(key))) {
+					return idx;
+				}
+				eqMask &= eqMask - 1;
+			}
+			int emptyMask = eqMask(word, EMPTY);
+			if (emptyMask != 0) return -1;
+			g = (g + (++step)) & mask;
+		}
+	}
+
 	private V insertAt(int idx, K key, V value, byte h2) {
 		if (isDeleted(ctrlAt(ctrl, idx))) tombstones--; // TODO: do not recalculate tombstones here
 		// Publish entry first, then mark ctrl as FULL.
@@ -444,6 +583,22 @@ public class SwissMap<K, V> extends AbstractArrayMap<K, V> {
 		setCtrlAt(ctrl, idx, h2);
 		size++;
 		return null;
+	}
+
+	private V insertAtConcurrent(int idx, K key, V value, byte h2) {
+		if (isDeleted(ctrlAt(ctrl, idx))) tombstones--;
+		// Publish entry first, then publish ctrl FULL tag with release-store.
+		setEntryAt(idx, key, value);
+		setCtrlAtRelease(ctrl, idx, h2);
+		size++;
+		return null;
+	}
+
+	private void deleteAtConcurrent(int idx) {
+		setCtrlAtRelease(ctrl, idx, DELETED);
+		// Ensure key/value clear is not reordered before ctrl=DELETED publication.
+		VarHandle.storeStoreFence();
+		setEntryAt(idx, null, null);
 	}
 
 	// Note: backward-shift deletion intentionally removed; it relies on linear-probe cluster contiguity.
